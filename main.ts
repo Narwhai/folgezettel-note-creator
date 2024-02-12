@@ -1,13 +1,15 @@
-import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting } from 'obsidian';
+import { App, Editor, MarkdownView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, Vault } from 'obsidian';
 
 // Remember to rename these classes and interfaces!
 
 interface MyPluginSettings {
-	mySetting: string;
+	idSeparator: string;
+	titleSeparator: string;
 }
 
 const DEFAULT_SETTINGS: MyPluginSettings = {
-	mySetting: 'default'
+	idSeparator: '_',
+	titleSeparator: '-'
 }
 
 export default class MyPlugin extends Plugin {
@@ -16,26 +18,6 @@ export default class MyPlugin extends Plugin {
 	async onload() {
 		await this.loadSettings();
 
-		// This creates an icon in the left ribbon.
-		const ribbonIconEl = this.addRibbonIcon('dice', 'Sample Plugin', (evt: MouseEvent) => {
-			// Called when the user clicks the icon.
-			new Notice('This is a notice!');
-		});
-		// Perform additional things with the ribbon
-		ribbonIconEl.addClass('my-plugin-ribbon-class');
-
-		// This adds a status bar item to the bottom of the app. Does not work on mobile apps.
-		const statusBarItemEl = this.addStatusBarItem();
-		statusBarItemEl.setText('Status Bar Text');
-
-		// This adds a simple command that can be triggered anywhere
-		this.addCommand({
-			id: 'open-sample-modal-simple',
-			name: 'Open sample modal (simple)',
-			callback: () => {
-				new SampleModal(this.app).open();
-			}
-		});
 		// This adds an editor command that can perform some operation on the current editor instance
 		this.addCommand({
 			id: 'sample-editor-command',
@@ -45,22 +27,27 @@ export default class MyPlugin extends Plugin {
 				editor.replaceSelection('Sample Editor Command');
 			}
 		});
+
 		// This adds a complex command that can check whether the current state of the app allows execution of the command
 		this.addCommand({
-			id: 'open-sample-modal-complex',
-			name: 'Open sample modal (complex)',
+			id: 'create-sibling',
+			name: 'Create sibling note',
 			checkCallback: (checking: boolean) => {
 				// Conditions to check
-				const markdownView = this.app.workspace.getActiveViewOfType(MarkdownView);
-				if (markdownView) {
-					// If checking is true, we're simply "checking" if the command can be run.
-					// If checking is false, then we want to actually perform the operation.
-					if (!checking) {
-						new SampleModal(this.app).open();
+				const activeFile = this.app.workspace.getActiveFile();
+				if (!activeFile) return false;
+				if (checking) {
+					let parentDir = activeFile.parent;
+					console.log('parent: ', activeFile.parent);
+					console.log('parent children: ', parentDir?.children);
+					if (this.isFolgezettel(activeFile.basename)) {
+						console.log('isfolgezettel');
+						return true;
 					}
-
-					// This command will only show up in Command Palette when the check function returns true
-					return true;
+				}
+				if (!checking) {
+					console.log('not checking');
+					this.createSiblingNote(activeFile);
 				}
 			}
 		});
@@ -70,12 +57,85 @@ export default class MyPlugin extends Plugin {
 
 		// If the plugin hooks up any global DOM events (on parts of the app that doesn't belong to this plugin)
 		// Using this function will automatically remove the event listener when this plugin is disabled.
-		this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
-			console.log('click', evt);
-		});
+		// this.registerDomEvent(document, 'click', (evt: MouseEvent) => {
+		// 	console.log('click', evt);
+		// });
 
 		// When registering intervals, this function will automatically clear the interval when the plugin is disabled.
 		this.registerInterval(window.setInterval(() => console.log('setInterval'), 5 * 60 * 1000));
+	}
+
+	public isFolgezettel(fileName: string): boolean {
+		console.log('checking if folgezettel');
+		const parts: string[] = fileName.split('_');
+		if (parts.length === 3) {
+			return true;
+		}
+		return false;
+	}
+
+	public createSiblingNote(note: TFile) {
+		const parts: string[] = note.basename.split('_');
+		const matchName: string = parts[0] + parts[1];
+		const directory: TFolder | null = note?.parent;
+		const noteId = parts[1];
+		console.log(parts);
+
+		const lastCharOfId = noteId.charCodeAt(noteId.length - 1);
+		console.log(lastCharOfId);
+
+		if (this.isDigit(lastCharOfId)) {
+			const previousChar = noteId.charCodeAt(noteId.length - 2);
+			if (this.isDigit(previousChar)) {
+				const fullNum = noteId.slice(-2);
+			}
+		} else if (this.isLetter(lastCharOfId)) {
+			const nextChar: string = String.fromCharCode(lastCharOfId + 1);
+		}
+
+		let relatedFiles;
+		if (directory != null) {
+			relatedFiles = directory.children;
+			console.log("directory not null: ", relatedFiles);
+		} else {
+			relatedFiles = this.app.vault.getMarkdownFiles();
+			console.log("directory null: ", relatedFiles);
+		}
+		const results = relatedFiles.filter((x) => {
+			let splitName = x.name.split('_');
+			let checkName = splitName[0] + splitName[1];
+			if (checkName.startsWith(matchName) && checkName.length === matchName.length) {
+				return x;
+			};
+		});
+
+		const lastChar = results[results.length - 1].name.split('_')[1];
+		const nextCharCode = lastChar.charCodeAt(lastChar.length - 1) + 1; 
+
+		const newId = parts[0] + this.settings.idSeparator + parts[1].slice(0, -1)
+			 + String.fromCharCode(nextCharCode);
+		console.log('newId: ', newId);
+		console.log('directoryName: ', directory?.name);
+
+		this.createFile(directory?.name ? directory.name : '', newId); 
+	}
+
+	public createFile(path: string, id: string) {
+		this.app.vault.create(path + "/" + id + ".md", "");
+	}
+	
+	public isDigit(charCode: number): boolean {
+		if (charCode >= 48 && charCode <= 57) {
+			return true;
+		}
+		return false;
+	}
+
+	public isLetter(charCode: number): boolean {
+		if (charCode >= 65 && charCode <= 90 || charCode >= 97 && charCode <= 122) {
+			return true;
+		}
+		return false;
 	}
 
 	onunload() {
@@ -97,12 +157,12 @@ class SampleModal extends Modal {
 	}
 
 	onOpen() {
-		const {contentEl} = this;
+		const { contentEl } = this;
 		contentEl.setText('Woah!');
 	}
 
 	onClose() {
-		const {contentEl} = this;
+		const { contentEl } = this;
 		contentEl.empty();
 	}
 }
@@ -116,19 +176,31 @@ class SampleSettingTab extends PluginSettingTab {
 	}
 
 	display(): void {
-		const {containerEl} = this;
+		const { containerEl } = this;
 
 		containerEl.empty();
 
 		new Setting(containerEl)
-			.setName('Setting #1')
-			.setDesc('It\'s a secret')
+			.setName('Folgezettel ID Separator')
+			.setDesc('Character separating values in ID: 1_1, 1.1, 1-1, etc.')
 			.addText(text => text
-				.setPlaceholder('Enter your secret')
-				.setValue(this.plugin.settings.mySetting)
+				.setPlaceholder('_, ., -, etc.')
+				.setValue(this.plugin.settings.idSeparator)
 				.onChange(async (value) => {
-					this.plugin.settings.mySetting = value;
+					this.plugin.settings.idSeparator = value;
+					await this.plugin.saveSettings();
+				}));
+
+		new Setting(containerEl)
+			.setName('ID to Title Separator')
+			.setDesc('Character separating title from ID: 1_1-Title, 1.1_Title, 1-1.Title, etc.')
+			.addText(text => text
+				.setPlaceholder('_, ., -, etc.')
+				.setValue(this.plugin.settings.titleSeparator)
+				.onChange(async (value) => {
+					this.plugin.settings.titleSeparator = value;
 					await this.plugin.saveSettings();
 				}));
 	}
 }
+
